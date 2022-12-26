@@ -1,66 +1,58 @@
 services:
-  app:
-    entrypoint:
-    - sleep
-    - infinity
-    image: docker/dev-environments-go:stable-1
-    init: true
-    volumes:
-    - type: bind
-      source: /var/run/docker.sock
-      target: /var/run/docker.sock
-
-version: '3'
-
-services:
-  postgres:
-    image: postgres:13.1
-    healthcheck:
-      test: [ "CMD", "pg_isready", "-q", "-d", "postgres", "-U", "root" ]
-      timeout: 45s
-      interval: 10s
-      retries: 10
-    restart: always
-    environment:
-      - POSTGRES_USER=root
-      - POSTGRES_PASSWORD=password
-      - APP_DB_USER=docker
-      - APP_DB_PASS=docker
-      - APP_DB_NAME=docker
-    volumes:
-      - ./db:/docker-entrypoint-initdb.d/
+  nginx:
+    build: images/nginx
+    command: nginx -g "daemon off;"
+    links:
+      - php
     ports:
-      - 5432:5432
-
-# A Docker Compose must always start with the version tag.
-# We use '3' because it's the last version.
-version: '3'
-
-# You should know that Docker Compose works with services.
-# 1 service = 1 container.
-# For example, a service, a server, a client, a database...
-# We use the keyword 'services' to start to create services.
-services:
-  # The name of our service is "database"
-  # but you can use the name of your choice.
-  # Note: This may change the commands you are going to use a little bit.
-  database:
-    # Official Postgres image from DockerHub (we use the last version)
-    image: 'postgres:latest'
-
-    # By default, a Postgres database is running on the 5432 port.
-    # If we want to access the database from our computer (outside the container),
-    # we must share the port with our computer's port.
-    # The syntax is [port we want on our machine]:[port we want to retrieve in the container]
-    # Note: You are free to change your computer's port,
-    # but take into consideration that it will change the way
-    # you are connecting to your database.
+      - "8090:80"
+    volumes:
+      - ./images/php/app/public:/var/www/html/app/public
+  php:
+    build: images/php
+    volumes:
+      - ./images/php:/var/www/html
+    working_dir: /var/www/html/app/public
+    command: php-fpm
+    links:
+      - db
+      - cache
     ports:
-      - 5432:5432
-
+      - "9000:9000"
     environment:
-      POSTGRES_USER: sa # The PostgreSQL user (useful to connect to the database)
-      POSTGRES_PASSWORD: admin # The PostgreSQL password (useful to connect to the database)
-      POSTGRES_DB: default_database # The PostgreSQL default database (automatically created at first launch)
-
-
+      APP_ENV: local
+      APP_DEBUG: 'true'
+      APP_KEY: SomeRandomKey!!!
+      APP_LOCALE: en
+      APP_FALLBACK_LOCALE: en
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      MEMCACHED_HOST: cache
+      CACHE_DRIVER: memcached
+  db:
+    image: mysql:8
+    command: --default-authentication-plugin=mysql_native_password # needed as of mysql 8
+    ports:
+      - "3310:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USERNAME}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+  cache:
+    image: memcached:1.6-alpine
+  pma-leothai:
+    image: phpmyadmin:latest
+    container_name: pma-leothai
+    restart: unless-stopped
+    tty: true
+    environment:
+      # PMA_ARBITRARY: 1
+      PMA_HOST: db
+    ports:
+      - "8091:80"
+    links:
+      - db
